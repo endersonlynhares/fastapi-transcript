@@ -7,7 +7,7 @@ import numpy as np
 from fastapi.middleware.cors import CORSMiddleware
 from sentence_transformers import SentenceTransformer, util  # Para similaridade semântica
 from typing import Dict, Any
-from source.frases import frases_reprovado, frases_quase_la, frases_aprovado_pode_melhorar, frases_aprovado_bom_desempenho
+from frases import frases_reprovado, frases_quase_la, frases_aprovado_pode_melhorar, frases_aprovado_bom_desempenho
 
 app = FastAPI()
 
