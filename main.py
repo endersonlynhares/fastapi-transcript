@@ -1,5 +1,4 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Body
 import jellyfish
 import re
 import random
@@ -8,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
 from mangum import Mangum
 import spacy
+import base64
+import json
 
 app = FastAPI()
 handler = Mangum(app)
@@ -19,32 +20,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-nlp = spacy.load("en_core_web_sm")
+nlp = spacy.load("en_core_web_md")
 
-class EvaluationRequest(BaseModel):
-    transcribed_text: str
-    target_text: str
-
-@app.post("/evaluate-pronunciation")
-async def evaluate_pronunciation(request: EvaluationRequest) -> Dict[str, Any]:
+@app.post("/track-evlp")
+async def evaluate_pronunciation(encoded_data: str = Body(...)) -> Dict[str, Any]:
     try:
-        transcribed_clean = preprocess_text(request.transcribed_text)
-        target_clean = preprocess_text(request.target_text)
+        json_data = decode_with_protection(encoded_data)
+        print(json_data)
+        transcribed_text = json_data.get("transcribed_text", "")
+        target_text = json_data.get("target_text", "")
+
+        transcribed_clean = preprocess_text(transcribed_text)
+        target_clean = preprocess_text(target_text)
+
+        transcribed_words = transcribed_clean.split()
+        target_words = target_clean.split()
+
+        correct_words = []
+        incorrect_words = []
+        phonetic_details = []
+        correct_count = 0
+        incorrect_count = 0
+
+        for transcribed_word, target_word in zip(transcribed_words, target_words):
+            phonetic_transcribed = jellyfish.metaphone(transcribed_word)
+            phonetic_target = jellyfish.metaphone(target_word)
+
+            if phonetic_transcribed == phonetic_target:
+                correct_words.append(transcribed_word)
+                correct_count += 1
+            else:
+                incorrect_words.append(transcribed_word)
+                incorrect_count += 1
+
+            phonetic_details.append({
+                "transcribed_word": transcribed_word,
+                "target_word": target_word,
+                "phonetic_transcribed": phonetic_transcribed,
+                "phonetic_target": phonetic_target,
+                "is_correct": phonetic_transcribed == phonetic_target
+            })
 
         phonetic_score = calculate_phonetic_similarity(transcribed_clean, target_clean)
-
         semantic_score = calculate_semantic_similarity(transcribed_clean, target_clean)
-
-        final_score = (phonetic_score * 0.85) + (semantic_score * 0.15)
-
+        final_score = (phonetic_score * 0.90) + (semantic_score * 0.10)
         feedback = generate_feedback(final_score)
 
         return {
             "score": round(final_score * 100, 2),
-            "feedback": feedback
+            "feedback": feedback,
+            "correct_words": correct_words,
+            "incorrect_words": incorrect_words,
+            "phonetic_details": phonetic_details,
+            "correct_count": correct_count,
+            "incorrect_count": incorrect_count
         }
 
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 def calculate_phonetic_similarity(text1: str, text2: str) -> float:
@@ -70,10 +103,9 @@ def calculate_phonetic_similarity(text1: str, text2: str) -> float:
     return np.mean(similarities)
 
 def calculate_semantic_similarity(text1: str, text2: str) -> float:
-    # Usa spaCy para gerar embeddings e calcular similaridade
     doc1 = nlp(text1)
     doc2 = nlp(text2)
-    similarity = doc1.similarity(doc2)  # Similaridade cosseno entre os embeddings
+    similarity = doc1.similarity(doc2)
     return similarity
 
 def generate_feedback(score):
@@ -90,6 +122,19 @@ def preprocess_text(text: str) -> str:
     text = text.lower()
     text = re.sub(r"[^\w\s]", "", text)
     return text.strip()
+
+def decode_with_protection(protected_base64: str) -> dict:
+    clean_base64 = (
+        protected_base64[:2] +  # Remove o caractere na 3ª posição
+        protected_base64[3:7] +  # Remove o caractere na 7ª posição
+        protected_base64[8:-1]  # Remove o caractere na última posição
+    )
+
+    json_str = base64.b64decode(clean_base64).decode('utf-8')
+    print(clean_base64)
+    print(json_str)
+    print(json.loads(json_str))
+    return json.loads(json_str)
 
 # FRASES
 
