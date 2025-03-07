@@ -5,10 +5,12 @@ import re
 import random
 import numpy as np
 from fastapi.middleware.cors import CORSMiddleware
-from sentence_transformers import SentenceTransformer, util
 from typing import Dict, Any
+from mangum import Mangum
+import spacy
 
 app = FastAPI()
+handler = Mangum(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,7 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-semantic_model = SentenceTransformer('all-MiniLM-L6-v2')
+nlp = spacy.load("en_core_web_sm")
 
 class EvaluationRequest(BaseModel):
     transcribed_text: str
@@ -68,10 +70,11 @@ def calculate_phonetic_similarity(text1: str, text2: str) -> float:
     return np.mean(similarities)
 
 def calculate_semantic_similarity(text1: str, text2: str) -> float:
-    embeddings = semantic_model.encode([text1, text2], convert_to_tensor=True)
-    similarity = util.cos_sim(embeddings[0], embeddings[1]).item()
+    # Usa spaCy para gerar embeddings e calcular similaridade
+    doc1 = nlp(text1)
+    doc2 = nlp(text2)
+    similarity = doc1.similarity(doc2)  # Similaridade cosseno entre os embeddings
     return similarity
-
 
 def generate_feedback(score):
     if score < 0.6:
@@ -83,12 +86,12 @@ def generate_feedback(score):
     else:
         return {"status": "Aprovado (Bom desempenho)", "message": random.choice(frases_aprovado_bom_desempenho)}
 
-
 def preprocess_text(text: str) -> str:
     text = text.lower()
     text = re.sub(r"[^\w\s]", "", text)
     return text.strip()
 
+# FRASES
 
 frases_reprovado = [
     "Tente de novo! Você está no caminho certo!",
